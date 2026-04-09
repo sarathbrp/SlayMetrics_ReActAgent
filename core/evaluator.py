@@ -67,9 +67,12 @@ class Evaluator:
 
         # Skip degradation check for workloads with very low baseline RPS —
         # at < 10 RPS, a single-request timing variance causes ±50%+ swings.
+        # When priority improvement is neutral (≤ 0%), apply a stricter -2% tolerance
+        # to avoid accepting fixes that do nothing but add noise degradation.
+        effective_tolerance = degradation_tolerance if priority_avg > 0 else -2.0
         degraded = {
             w: d for w, d in others.items()
-            if d < degradation_tolerance and baseline.get(w, 0) >= 10.0
+            if d < effective_tolerance and baseline.get(w, 0) >= 10.0
         }
 
         keep = priority_avg >= threshold and not degraded
