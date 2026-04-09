@@ -114,7 +114,11 @@ class NetworkAnalyzer:
         elapsed = (datetime.now() - t0).total_seconds()
         fixes, summary = _parse_fixes_json(pred.result_json)
         in_tok, out_tok = _extract_tokens()
-        logger.info("Network analysis done in %.1fs — %d fixes", elapsed, len(fixes))
+        logger.info("Network analysis done in %.1fs — %d fixes found", elapsed, len(fixes))
+        if summary:
+            logger.info("Network summary: %s", summary)
+        for f in fixes:
+            logger.info("  [Net fix] %s → tool=%s params=%s", f.get("description", ""), f.get("tool", ""), f.get("params", {}))
         return fixes, summary, in_tok, out_tok
 
 
@@ -179,7 +183,11 @@ class KernelAnalyzer:
         elapsed = (datetime.now() - t0).total_seconds()
         fixes, summary = _parse_fixes_json(pred.result_json)
         in_tok, out_tok = _extract_tokens()
-        logger.info("Kernel analysis done in %.1fs — %d fixes", elapsed, len(fixes))
+        logger.info("Kernel analysis done in %.1fs — %d fixes found", elapsed, len(fixes))
+        if summary:
+            logger.info("Kernel summary: %s", summary)
+        for f in fixes:
+            logger.info("  [Kernel fix] %s → tool=%s params=%s", f.get("description", ""), f.get("tool", ""), f.get("params", {}))
         return fixes, summary, in_tok, out_tok
 
 
@@ -247,5 +255,7 @@ class NginxAnalyzer:
         elapsed = (datetime.now() - t0).total_seconds()
         fixes, _ = _parse_fixes_json(pred.result_json)
         in_tok, out_tok = _extract_tokens()
-        logger.info("Nginx analysis done in %.1fs — %d fixes", elapsed, len(fixes))
+        logger.info("Nginx analysis done in %.1fs — %d fixes found", elapsed, len(fixes))
+        for f in fixes:
+            logger.info("  [Nginx fix] %s → tool=%s params=%s", f.get("description", ""), f.get("tool", ""), f.get("params", {}))
         return fixes, in_tok, out_tok
