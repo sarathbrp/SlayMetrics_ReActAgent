@@ -28,7 +28,7 @@ from core import (Config, RemoteExecutor, AuditRunner, RCAAnalyzer,
                   FixApplier, Evaluator, Display, ReportWriter,
                   FeedbackOptimizer, SemanticMemory, LiveSampler,
                   NetworkAnalyzer, KernelAnalyzer, NginxAnalyzer,
-                  extract_audit_groups)
+                  extract_audit_groups, RunTracker)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -112,6 +112,7 @@ class RCAAgent:
             api_key=config.llm_api_key,
             embed_model=config.llm_embed_model,
         )
+        self.tracker          = RunTracker(config)
         self._current_applier: FixApplier | None = None
         self._partial_state:   dict              = {}
         self.graph            = self._build_graph()
@@ -202,6 +203,7 @@ class RCAAgent:
             logger.info("Benchmark captured (%d bytes, %d workloads)",
                         len(formatted), len(baseline_rps))
             Display.benchmark_results(formatted)
+            self.tracker.log_baseline(baseline_rps)
 
             # Analyze collected CSV → compact hypothesis for LLM + console
             live_audit = self.sampler.analyze(csv_path) if csv_path.exists() else ""
@@ -231,6 +233,7 @@ class RCAAgent:
             )
             calls = list(state.get("llm_calls", []))
             calls.append(("network", round(elapsed, 1), in_tok, out_tok, len(fixes)))
+            self.tracker.log_llm_call("network", elapsed, in_tok, out_tok, len(fixes))
             self._partial_state.update({
                 "session_id": state.get("session_id", ""),
                 "audit_output": audit_output,
@@ -261,6 +264,7 @@ class RCAAgent:
             )
             calls = list(state.get("llm_calls", []))
             calls.append(("kernel", round(elapsed, 1), in_tok, out_tok, len(fixes)))
+            self.tracker.log_llm_call("kernel", elapsed, in_tok, out_tok, len(fixes))
             return {**state, "kernel_fixes": fixes, "kernel_summary": summary,
                     "llm_calls": calls,
                     "total_input_tokens": state.get("total_input_tokens", 0) + in_tok,
@@ -283,6 +287,7 @@ class RCAAgent:
             )
             calls = list(state.get("llm_calls", []))
             calls.append(("nginx", round(elapsed, 1), in_tok, out_tok, len(fixes)))
+            self.tracker.log_llm_call("nginx", elapsed, in_tok, out_tok, len(fixes))
             rca_report = "\n\n".join(filter(None, [
                 state.get("network_summary", ""),
                 state.get("kernel_summary", ""),
@@ -408,6 +413,7 @@ class RCAAgent:
                 else:
                     rejected.append((fix.get("description", ""), round(pct, 2)))
                     applier.rollback()
+                self.tracker.log_fix(fix.get("description", ""), fix.get("tool", ""), keep, pct)
                 self._current_applier = None
                 self._partial_state["applied_fixes"]  = applied
                 self._partial_state["rejected_fixes"] = rejected
@@ -469,6 +475,7 @@ class RCAAgent:
     def run(self) -> None:
         session_id = str(uuid4())
         logger.info("Session ID: %s", session_id)
+        self.tracker.start(session_id)
         initial: RCAState = {
             "session_id": session_id, "similar_cases": "", "live_audit_output": "",
             "audit_output": "", "benchmark_results": "", "baseline_rps": {},
@@ -519,6 +526,12 @@ class RCAAgent:
 
         in_tok  = result.get("total_input_tokens", 0)
         out_tok = result.get("total_output_tokens", 0)
+        self.tracker.log_final(
+            result["applied_fixes"], result["rejected_fixes"],
+            in_tok, out_tok,
+            session_dir=REPORTS_DIR / result["session_id"],
+        )
+        self.tracker.end()
         Display.llm_calls_summary(result.get("llm_calls", []))
         Display.run_summary(
             result["rca_report"],

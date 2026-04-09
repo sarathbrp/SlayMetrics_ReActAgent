@@ -108,6 +108,19 @@ class Config:
     def remediation_degradation_tolerance(self) -> float:
         return self._cfg.get("remediation", {}).get("degradation_tolerance_pct", -3.0)
 
+    # --- MLflow ---
+    @property
+    def mlflow_enabled(self) -> bool:
+        return self._cfg.get("mlflow", {}).get("enabled", False)
+
+    @property
+    def mlflow_tracking_uri(self) -> str:
+        return self._cfg.get("mlflow", {}).get("tracking_uri", "http://localhost:5000")
+
+    @property
+    def mlflow_experiment(self) -> str:
+        return self._cfg.get("mlflow", {}).get("experiment", "SlayMetrics")
+
     @property
     def memory_inject_into_rca(self) -> bool:
         return self._cfg.get("memory", {}).get("inject_into_rca_analysis", True)

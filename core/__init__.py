@@ -13,6 +13,7 @@ from .optimizer import FeedbackOptimizer
 from .memory import SemanticMemory
 from .live_sampler import LiveSampler
 from .domain_analyzers import NetworkAnalyzer, KernelAnalyzer, NginxAnalyzer, extract_audit_groups
+from .tracking import RunTracker
 
 __all__ = [
     "Config",
@@ -35,4 +36,5 @@ __all__ = [
     "KernelAnalyzer",
     "NginxAnalyzer",
     "extract_audit_groups",
+    "RunTracker",
 ]

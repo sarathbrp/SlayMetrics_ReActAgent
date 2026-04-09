@@ -1,5 +1,10 @@
 log_level: INFO   # INFO, DEBUG, WARNING — controls all hosttune log output
 
+mlflow:
+  enabled: true
+  tracking_uri: http://d21-h24-000-r650.rdu2.scalelab.redhat.com:5000/
+  experiment: SlayMetrics
+
 memory:
   inject_into_rca_analysis: true      # pass similar_cases to Call 1 (RCA report)
   inject_into_fix_extraction: true    # pass similar_cases to Call 2 (fix parser)
