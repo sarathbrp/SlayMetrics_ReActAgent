@@ -3,6 +3,8 @@ import subprocess
 import time
 from pathlib import Path
 
+
+
 from .config import Config
 
 logger = logging.getLogger("slayMetrics.benchmark")
@@ -56,6 +58,12 @@ class BenchmarkRunner:
             )
 
         logger.info("Benchmark complete (%d bytes)", len(output))
+
+        cooling = self.config.benchmark_cooling_period
+        if cooling > 0:
+            logger.info("Cooling period: %ds — waiting for DUT to drain connections", cooling)
+            time.sleep(cooling)
+
         return output
 
     def run_final(self, duration_minutes: int) -> str:
