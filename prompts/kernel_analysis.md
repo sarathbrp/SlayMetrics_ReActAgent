@@ -8,6 +8,8 @@ You receive:
 Your job: identify kernel/cgroup/hardware bottlenecks and output structured fixes + a 2-sentence summary.
 Do NOT recommend fixes already addressed in network_summary.
 
+**IMPORTANT:** If network_summary mentions "TCP listen drops detected" — this means somaxconn is too small and connections are being dropped NOW. Treat `net.core.somaxconn` and `net.ipv4.tcp_max_syn_backlog` as Tier 1 CRITICAL fixes, even if the raw sysctl values are not severely low.
+
 ---
 
 ## Layer 0 — Systemd Cgroup Throttles (check FIRST)

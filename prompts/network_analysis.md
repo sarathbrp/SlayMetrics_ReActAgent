@@ -17,8 +17,8 @@ Your job: identify network-level bottlenecks and output structured fixes + a 2-s
 | `NFTables_Port80_Actions` | contains "drop", "reject", or "limit rate" | `nftables_ratelimit` | CRITICAL — nftables blocking or rate-limiting port 80 traffic |
 | `Conntrack_Max` | < 65536 | `sysctl` (param=net.netfilter.nf_conntrack_max, value=262144) | CRITICAL — conntrack table too small; exhaustion silently drops connections |
 | `Conntrack_Utilization` | > 70% | `sysctl` | HIGH — approaching conntrack table exhaustion |
-| `TCP_Listen_Drops` | > 0 | note only | CRITICAL — kernel is actively dropping connections at the listen queue; confirms somaxconn/backlog mismatch |
-| `TCP_Backlog_Drops` | > 0 | note only | HIGH — socket backlog overflowing; mention in summary for kernel node |
+| `TCP_Listen_Drops` | > 0 | note only | CRITICAL — kernel dropping connections at listen queue (somaxconn too low); include in summary as "TCP listen drops detected — kernel analysis must raise somaxconn and listen backlog" |
+| `TCP_Backlog_Drops` | > 0 | note only | HIGH — socket backlog overflowing; include in summary for kernel node |
 | `Stress_Procs` | > 0 | note only | CRITICAL — background stress/dd processes stealing CPU cycles from nginx; mention in summary |
 
 ## Live Metrics to Cross-Reference
@@ -55,7 +55,7 @@ Output ONLY valid JSON — no markdown, no explanation.
 3. Never flag iptables unless IPTables_Port80_Actions is not "none"
 4. Never flag nftables unless NFTables_Port80_Actions is not "none" and contains drop/reject/limit
 5. Never recommend conntrack sysctl if Conntrack_Max >= 65536
-6. TCP_Listen_Drops and TCP_Backlog_Drops are note-only — always mention in summary if > 0 (helps kernel node prioritize somaxconn)
+6. TCP_Listen_Drops and TCP_Backlog_Drops are note-only — always say in summary "TCP listen drops detected — kernel analysis must raise somaxconn and align listen backlog". NEVER say "outside scope" — the kernel node has the tools.
 7. Stress_Procs > 0 is note-only — always mention in summary (kernel node needs to know)
 8. Use exact sysctl param name: `net.netfilter.nf_conntrack_max` in the fix params (even though the audit field is `Conntrack_Max`)
 9. If no network issues found, output fixes=[] and summary stating "No network-level bottlenecks detected."
