@@ -31,10 +31,11 @@ fi
 NIC_DISC=${NIC_DISC:-0}
 NIC_ERR=${NIC_ERR:-0}
 
-# --- TCP state (/proc/net/sockstat) ---
-TCP_TW=$(grep '^TCP:' /proc/net/sockstat 2>/dev/null | awk '{print $6}')
-TCP_EST=$(grep '^TCP:' /proc/net/sockstat 2>/dev/null | awk '{print $4}')
-TCP_MEM=$(grep '^TCP:' /proc/net/sockstat 2>/dev/null | awk '{print $8}')
+# --- TCP state (/proc/net/sockstat) — label-based extraction (field positions vary) ---
+_SOCKSTAT=$(grep '^TCP:' /proc/net/sockstat 2>/dev/null)
+TCP_TW=$(echo "$_SOCKSTAT"  | awk '{for(i=1;i<=NF;i++){if($i=="tw")  {print $(i+1)}}}')
+TCP_EST=$(echo "$_SOCKSTAT" | awk '{for(i=1;i<=NF;i++){if($i=="inuse"){print $(i+1)}}}')
+TCP_MEM=$(echo "$_SOCKSTAT" | awk '{for(i=1;i<=NF;i++){if($i=="mem") {print $(i+1)}}}')
 TCP_TW=${TCP_TW:-0}; TCP_EST=${TCP_EST:-0}; TCP_MEM=${TCP_MEM:-0}
 
 # --- CPU (vmstat single sample) ---
