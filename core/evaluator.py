@@ -35,7 +35,7 @@ class Evaluator:
     @staticmethod
     def improvement_pct(baseline: dict[str, float],
                         current: dict[str, float]) -> float:
-        """Average improvement % across workloads common to both runs."""
+        """Simple average improvement % across workloads common to both runs."""
         common = set(baseline) & set(current)
         if not baseline or not common:
             return 0.0
@@ -44,6 +44,21 @@ class Evaluator:
             for w in common
         ]
         return sum(pcts) / len(pcts)
+
+    @staticmethod
+    def weighted_improvement_pct(baseline: dict[str, float],
+                                 current: dict[str, float]) -> float:
+        """RPS-weighted average improvement %. High-RPS workloads dominate."""
+        common = set(baseline) & set(current)
+        if not baseline or not common:
+            return 0.0
+        total_rps = sum(baseline[w] for w in common)
+        if total_rps == 0:
+            return 0.0
+        return sum(
+            baseline[w] * (current[w] - baseline[w]) / baseline[w] * 100
+            for w in common
+        ) / total_rps
 
     @staticmethod
     def should_keep(baseline: dict[str, float], current: dict[str, float],

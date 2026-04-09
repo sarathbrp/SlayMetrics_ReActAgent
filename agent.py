@@ -403,23 +403,51 @@ class RCAAgent:
                     self.config.remediation_degradation_tolerance,
                 )
 
-                # LLM review: when gate rejects but overall improvement is positive
+                # LLM review: when gate rejects but RPS-weighted improvement
+                # is positive, ask the LLM to evaluate with full context.
+                # RPS-weighted avg gives high-volume workloads proportional
+                # influence — a -12% dip on 1k-RPS mixed won't mask +18%
+                # gains on 70k-RPS homepage/small.
                 llm_overridden = False
-                overall_pct = self.evaluator.improvement_pct(baseline, current_rps)
-                if (not keep and overall_pct > 0
-                        and self.config.remediation_llm_review_rejected):
-                    rca_context = state.get("rca_report", "")
-                    save_dir = REPORTS_DIR / state.get("session_id", "unknown")
-                    accept, reasoning, r_in, r_out = self.fix_reviewer.review(
-                        fix, baseline, current_rps, rca_context, degraded,
-                        save_dir=save_dir,
-                    )
-                    if accept:
-                        keep = True
-                        llm_overridden = True
+                simple_pct = self.evaluator.improvement_pct(baseline, current_rps)
+                weighted_pct = self.evaluator.weighted_improvement_pct(
+                    baseline, current_rps,
+                )
+
+                if not keep and self.config.remediation_llm_review_rejected:
+                    if weighted_pct > 0:
                         logger.info(
-                            "LLM OVERRIDE: fix accepted despite gate rejection — %s",
-                            reasoning,
+                            "LLM review TRIGGERED — gate rejected but "
+                            "RPS-weighted improvement is +%.2f%% "
+                            "(simple avg: %+.2f%%, degraded: %s)",
+                            weighted_pct, simple_pct,
+                            ", ".join(f"{w}={d:+.1f}%" for w, d in degraded.items()),
+                        )
+                        rca_context = state.get("rca_report", "")
+                        save_dir = REPORTS_DIR / state.get("session_id", "unknown")
+                        accept, reasoning, r_in, r_out = self.fix_reviewer.review(
+                            fix, baseline, current_rps, rca_context, degraded,
+                            save_dir=save_dir,
+                        )
+                        if accept:
+                            keep = True
+                            llm_overridden = True
+                            logger.info(
+                                "LLM OVERRIDE: fix accepted — %s", reasoning,
+                            )
+                        else:
+                            logger.info(
+                                "LLM CONFIRMED rejection — %s", reasoning,
+                            )
+                    else:
+                        logger.info(
+                            "LLM review SKIPPED — RPS-weighted improvement "
+                            "is %.2f%% (not positive). Fix is genuinely "
+                            "unhelpful even when weighted by throughput volume "
+                            "(simple avg: %+.2f%%, degraded: %s)",
+                            weighted_pct, simple_pct,
+                            ", ".join(f"{w}={d:+.1f}%" for w, d in degraded.items())
+                            if degraded else "none",
                         )
 
                 Display.fix_comparison(
