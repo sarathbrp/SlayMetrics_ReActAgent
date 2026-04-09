@@ -45,6 +45,15 @@ class RCAAnalyzer:
             benchmark_results: str = dspy.InputField(
                 desc="Plain-text benchmark results showing RPS per workload"
             )
+            live_audit_output: str = dspy.InputField(
+                desc=(
+                    "Dynamic runtime metrics collected immediately after the benchmark: "
+                    "TCP socket state (ss -s), softnet drop/squeeze counters, NIC driver "
+                    "rx_discards/rx_errors, socket memory pressure (/proc/net/sockstat), "
+                    "CPU activity (vmstat), and cgroup throttle ratio. "
+                    "Empty string if not collected."
+                )
+            )
             similar_cases: str = dspy.InputField(
                 desc=(
                     "Similar past cases retrieved from semantic memory — "
@@ -66,10 +75,12 @@ class RCAAnalyzer:
                 self.analyze = dspy.ChainOfThought(RCASignature)
 
             def forward(self, audit_output: str, benchmark_results: str = "",
+                        live_audit_output: str = "",
                         similar_cases: str = "") -> dspy.Prediction:
                 return self.analyze(
                     audit_output=audit_output,
                     benchmark_results=benchmark_results,
+                    live_audit_output=live_audit_output,
                     similar_cases=similar_cases,
                 )
 
@@ -85,6 +96,7 @@ class RCAAnalyzer:
         return module
 
     def analyze(self, audit_output: str, benchmark_results: str = "",
+                live_audit_output: str = "",
                 similar_cases: str = "") -> tuple[str, int, int]:
         """Run RCA. Returns (rca_report, input_tokens, output_tokens)."""
         if self._module is None:
@@ -95,6 +107,7 @@ class RCAAnalyzer:
         prediction = self._module(
             audit_output=audit_output,
             benchmark_results=benchmark_results or "No benchmark results available.",
+            live_audit_output=live_audit_output,
             similar_cases=similar_cases,
         )
         elapsed = (datetime.now() - _t0).total_seconds()

@@ -75,6 +75,10 @@ class Config:
         return self._cfg.get("benchmark", {}).get("final_benchmark_duration_minutes", 5)
 
     @property
+    def benchmark_collect_live_audit(self) -> bool:
+        return self._cfg.get("benchmark", {}).get("collect_live_audit", True)
+
+    @property
     def benchmark_workloads(self) -> list[str]:
         return self._cfg["benchmark"].get("workloads", [])
 

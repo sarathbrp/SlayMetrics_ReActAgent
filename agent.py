@@ -63,6 +63,7 @@ class RCAState(TypedDict):
     similar_cases: str            # retrieved from semantic memory, shared across both LLM calls
     audit_output: str
     benchmark_results: str       # latest benchmark output (raw text)
+    live_audit_output: str        # dynamic metrics collected after initial benchmark
     baseline_rps: dict           # {workload: float} from initial benchmark
     rca_report: str
     fixes: list                  # extracted from RCA by RCAParser
@@ -179,8 +180,20 @@ class RCAAgent:
             logger.info("Benchmark captured (%d bytes, %d workloads)",
                         len(formatted), len(baseline_rps))
             Display.benchmark_results(formatted)
+
+            # Collect dynamic runtime metrics immediately after benchmark
+            live_audit = ""
+            if self.config.benchmark_collect_live_audit:
+                try:
+                    with self._executor() as executor:
+                        live_audit = AuditRunner(
+                            executor, SCRIPTS_DIR, REMOTE_TMP
+                        ).run_live()
+                except Exception as e:
+                    logger.warning("Live audit failed (non-fatal): %s", e)
+
             return {**state, "benchmark_results": formatted,
-                    "baseline_rps": baseline_rps}
+                    "baseline_rps": baseline_rps, "live_audit_output": live_audit}
         except Exception as e:
             logger.error("run_benchmark failed: %s", e)
             return {**state, "error": str(e)}
@@ -194,8 +207,9 @@ class RCAAgent:
             self.memory.retrieve(audit_output, benchmark_results)
             if self.config.memory_inject_into_rca else ""
         )
+        live_audit_output = state.get("live_audit_output", "")
         rca_report, in_tok, out_tok = self.analyzer.analyze(
-            audit_output, benchmark_results, similar_cases
+            audit_output, benchmark_results, live_audit_output, similar_cases
         )
         Display.llm_summary(self.config.dut_host, self.config.llm_model,
                              audit_output, in_tok, out_tok)
@@ -377,7 +391,7 @@ class RCAAgent:
         session_id = str(uuid4())
         logger.info("Session ID: %s", session_id)
         initial: RCAState = {
-            "session_id": session_id, "similar_cases": "",
+            "session_id": session_id, "similar_cases": "", "live_audit_output": "",
             "audit_output": "", "benchmark_results": "", "baseline_rps": {},
             "rca_report": "", "fixes": [], "fix_index": 0,
             "applied_fixes": [], "rejected_fixes": [],
@@ -437,6 +451,7 @@ class RCAAgent:
                 raw_final = self.benchmark.run_final(dur)
                 Display.benchmark_results(raw_final)
                 final_path = REPORTS_DIR / result["session_id"] / "final_benchmark.txt"
+                final_path.parent.mkdir(parents=True, exist_ok=True)
                 final_path.write_text(raw_final)
                 logger.info("Final benchmark saved to %s", final_path)
             except Exception as e:

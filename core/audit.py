@@ -43,6 +43,25 @@ class AuditRunner:
         logger.info("Captured %d bytes of audit output", len(clean))
         return clean
 
+    def run_live(self) -> str:
+        """Run live_audit.sh on the DUT and return stripped plain-text output.
+        Deploy is skipped if the script is unchanged (MD5 match).
+        """
+        live_script = "live_audit.sh"
+        local_path = self.scripts_dir / live_script
+        if not local_path.exists():
+            logger.warning("live_audit.sh not found in %s — skipping live audit", self.scripts_dir)
+            return ""
+        remote_path = f"{self.remote_tmp}/{live_script}"
+        self.executor.upload(local_path, remote_path)
+        output, err = self.executor.run(f"bash {remote_path}", timeout=30)
+        if not output.strip():
+            logger.warning("Live audit produced no output. stderr: %s", err.strip())
+            return ""
+        clean = ANSI_RE.sub("", output)
+        logger.info("Live audit complete (%d bytes)", len(clean))
+        return clean
+
     def deploy_and_run(self) -> str:
         self.deploy_scripts()
         return self.run()
