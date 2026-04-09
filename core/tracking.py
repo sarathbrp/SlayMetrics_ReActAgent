@@ -27,6 +27,13 @@ class RunTracker:
                 self._mlflow = mlflow
                 mlflow.set_tracking_uri(config.mlflow_tracking_uri)
                 mlflow.set_experiment(config.mlflow_experiment)
+                # Enable automatic DSPy tracing — captures prompt, response,
+                # token usage and latency for every DSPy Predict/ChainOfThought call
+                try:
+                    mlflow.dspy.autolog()
+                    logger.info("MLflow DSPy autolog enabled (Traces will appear in UI)")
+                except Exception as ae:
+                    logger.debug("MLflow DSPy autolog not available: %s", ae)
                 logger.info("MLflow tracking enabled → %s / %s",
                             config.mlflow_tracking_uri, config.mlflow_experiment)
             except Exception as e:
