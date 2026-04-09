@@ -60,7 +60,12 @@ def _format_cases(results: dict) -> str:
 
 
 class SemanticMemory:
-    """ChromaDB-backed semantic memory keyed by session_id."""
+    """ChromaDB-backed semantic memory keyed by session_id.
+
+    Embeddings: uses ChromaDB's built-in all-MiniLM-L6-v2 (sentence-transformers)
+    by default. If GPT_OSS_EMBED_MODEL is set AND the endpoint supports embeddings,
+    the API is used instead — but local is the safe default.
+    """
 
     def __init__(self, persist_dir: Path, base_url: str,
                  api_key: str, embed_model: str, top_k: int = 3):
@@ -68,12 +73,26 @@ class SemanticMemory:
         self.api_key     = api_key
         self.embed_model = embed_model
         self.top_k       = top_k
-        client           = chromadb.PersistentClient(path=str(persist_dir))
-        self.collection  = client.get_or_create_collection(
-            name=_COLLECTION,
-            metadata={"hnsw:space": "cosine"},
-        )
-        logger.info("Semantic memory: %d cases in store", self.collection.count())
+
+        # Probe API embedding on first init — fall back to local if unsupported
+        self._use_api = self._probe_api()
+
+        client = chromadb.PersistentClient(path=str(persist_dir))
+        if self._use_api:
+            # Manual embeddings — ChromaDB stores what we pass
+            self.collection = client.get_or_create_collection(
+                name=_COLLECTION, metadata={"hnsw:space": "cosine"}
+            )
+        else:
+            # Let ChromaDB embed locally with all-MiniLM-L6-v2
+            from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+            self.collection = client.get_or_create_collection(
+                name=_COLLECTION,
+                embedding_function=DefaultEmbeddingFunction(),
+                metadata={"hnsw:space": "cosine"},
+            )
+        logger.info("Semantic memory: %d cases in store (embeddings: %s)",
+                    self.collection.count(), "api" if self._use_api else "local")
 
     # ------------------------------------------------------------------
     # Public API
@@ -83,18 +102,19 @@ class SemanticMemory:
             rca_report: str, applied_fixes: list, rejected_fixes: list) -> None:
         """Store a completed run in the vector store."""
         doc = _build_doc(audit_output, benchmark_results)
-        emb = self._embed(doc)
-        if not emb:
+        emb = self._embed(doc) if self._use_api else None
+        if self._use_api and not emb:
             logger.warning("Embedding failed — skipping memory store for session %s", session_id[:8])
             return
 
         all_pcts = [pct for _, pct in applied_fixes]
         max_pct  = max(all_pcts) if all_pcts else 0.0
 
+        add_kwargs: dict = {"documents": [doc], "ids": [session_id]}
+        if emb:
+            add_kwargs["embeddings"] = [emb]
         self.collection.add(
-            documents=[doc],
-            embeddings=[emb],
-            ids=[session_id],
+            **add_kwargs,
             metadatas=[{
                 "session_id":          session_id,
                 "timestamp":           datetime.now().isoformat(),
@@ -113,13 +133,15 @@ class SemanticMemory:
             return ""
 
         doc = _build_doc(audit_output, benchmark_results)
-        emb = self._embed(doc)
-        if not emb:
-            logger.warning("Embedding failed — skipping memory retrieval")
-            return ""
-
         n = min(self.top_k, self.collection.count())
-        results = self.collection.query(query_embeddings=[emb], n_results=n)
+        if self._use_api:
+            emb = self._embed(doc)
+            if not emb:
+                logger.warning("Embedding failed — skipping memory retrieval")
+                return ""
+            results = self.collection.query(query_embeddings=[emb], n_results=n)
+        else:
+            results = self.collection.query(query_texts=[doc], n_results=n)
         sessions = [m.get("session_id", "?")[:8]
                     for m in (results.get("metadatas") or [[]])[0]]
         logger.info("Retrieved %d similar cases from memory (sessions: %s)", n, sessions)
@@ -128,6 +150,25 @@ class SemanticMemory:
     # ------------------------------------------------------------------
     # Embedding
     # ------------------------------------------------------------------
+
+    def _probe_api(self) -> bool:
+        """Return True if the API embedding endpoint works."""
+        try:
+            resp = httpx.post(
+                f"{self.base_url}/embeddings",
+                json={"model": self.embed_model, "input": "test"},
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                timeout=10,
+            )
+            body = resp.json()
+            if "data" in body or "embedding" in body:
+                logger.info("Embedding API available — using API embeddings")
+                return True
+            logger.info("Embedding API unsupported — using local embeddings (all-MiniLM-L6-v2)")
+            return False
+        except Exception:
+            logger.info("Embedding API unreachable — using local embeddings (all-MiniLM-L6-v2)")
+            return False
 
     def _embed(self, text: str) -> list[float]:
         """Call the OpenAI-compatible /embeddings endpoint."""
