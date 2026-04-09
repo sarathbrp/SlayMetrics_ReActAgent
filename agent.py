@@ -25,8 +25,10 @@ from langgraph.graph import StateGraph, END
 
 from core import (Config, RemoteExecutor, AuditRunner, RCAAnalyzer,
                   BenchmarkRunner, TOOL_REGISTRY, NETWORK_TOOL_NAMES,
-                  RCAParser, FixApplier, Evaluator, Display, ReportWriter,
-                  FeedbackOptimizer, SemanticMemory, LiveSampler)
+                  FixApplier, Evaluator, Display, ReportWriter,
+                  FeedbackOptimizer, SemanticMemory, LiveSampler,
+                  NetworkAnalyzer, KernelAnalyzer, NginxAnalyzer,
+                  extract_audit_groups)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -60,16 +62,22 @@ REMOTE_TMP   = "/tmp"
 
 class RCAState(TypedDict):
     session_id: str
-    similar_cases: str            # retrieved from semantic memory, shared across both LLM calls
+    similar_cases: str            # retrieved from semantic memory, shared across LLM calls
     audit_output: str
-    benchmark_results: str       # latest benchmark output (raw text)
-    live_audit_output: str        # dynamic metrics collected after initial benchmark
-    baseline_rps: dict           # {workload: float} from initial benchmark
-    rca_report: str
-    fixes: list                  # extracted from RCA by RCAParser
-    fix_index: int               # current position in fixes list
-    applied_fixes: list          # [(description, improvement_pct)]
-    rejected_fixes: list         # [(description, improvement_pct)]
+    benchmark_results: str        # latest benchmark output (raw text)
+    live_audit_output: str        # dynamic metrics collected during benchmark
+    baseline_rps: dict            # {workload: float} from initial benchmark
+    # Per-domain analysis outputs (chained context)
+    network_fixes: list
+    network_summary: str          # chained → analyze_kernel
+    kernel_fixes: list
+    kernel_summary: str           # chained → analyze_nginx
+    nginx_fixes: list
+    rca_report: str               # combined summaries (for report file + DSPy examples)
+    fixes: list                   # merged + sorted from all 3 domains
+    fix_index: int
+    applied_fixes: list           # [(description, improvement_pct)]
+    rejected_fixes: list          # [(description, improvement_pct)]
     total_input_tokens: int
     total_output_tokens: int
     error: str
@@ -83,11 +91,13 @@ class RCAAgent:
     """LangGraph agent: audit → benchmark → RCA → remediation loop."""
 
     def __init__(self, config: Config):
-        self.config           = config
-        self.analyzer         = RCAAnalyzer(config, PROMPTS_DIR, DSPY_DIR)
-        self.benchmark        = BenchmarkRunner(config)
-        self.parser           = RCAParser(config)
-        self.evaluator        = Evaluator()
+        self.config             = config
+        self.analyzer           = RCAAnalyzer(config, PROMPTS_DIR, DSPY_DIR)  # kept for save_example
+        self.net_analyzer       = NetworkAnalyzer(config, PROMPTS_DIR)
+        self.kernel_analyzer    = KernelAnalyzer(config, PROMPTS_DIR)
+        self.nginx_analyzer     = NginxAnalyzer(config, PROMPTS_DIR)
+        self.benchmark          = BenchmarkRunner(config)
+        self.evaluator          = Evaluator()
         self.reporter         = ReportWriter(REPORTS_DIR)
         self.optimizer        = FeedbackOptimizer(
             min_new_examples=config.optimization_min_new_examples,
@@ -161,7 +171,7 @@ class RCAAgent:
 
     # --- nodes ---
 
-    def _deploy_and_run(self, state: RCAState) -> RCAState:
+    def _run_audit(self, state: RCAState) -> RCAState:
         try:
             with self._executor() as executor:
                 output = AuditRunner(
@@ -169,7 +179,7 @@ class RCAAgent:
                 ).deploy_and_run()
             return {**state, "audit_output": output, "error": ""}
         except Exception as e:
-            logger.error("deploy_and_run failed: %s", e)
+            logger.error("run_audit failed: %s", e)
             return {**state, "error": str(e)}
 
     def _run_benchmark(self, state: RCAState) -> RCAState:
@@ -202,7 +212,7 @@ class RCAAgent:
             logger.error("run_benchmark failed: %s", e)
             return {**state, "error": str(e)}
 
-    def _analyze(self, state: RCAState) -> RCAState:
+    def _analyze_network(self, state: RCAState) -> RCAState:
         if state.get("error"):
             return state
         audit_output      = state["audit_output"]
@@ -211,69 +221,112 @@ class RCAAgent:
             self.memory.retrieve(audit_output, benchmark_results)
             if self.config.memory_inject_into_rca else ""
         )
-        live_audit_output = state.get("live_audit_output", "")
-        rca_report, in_tok, out_tok = self.analyzer.analyze(
-            audit_output, benchmark_results, live_audit_output, similar_cases
-        )
-        Display.llm_summary(self.config.dut_host, self.config.llm_model,
-                             audit_output, in_tok, out_tok)
-        self._partial_state.update({
-            "session_id": state.get("session_id", ""),
-            "audit_output": audit_output,
-            "benchmark_results": benchmark_results,
-            "rca_report": rca_report,
-            "applied_fixes": [], "rejected_fixes": [],
-        })
-
-        return {**state, "similar_cases": similar_cases, "rca_report": rca_report,
-                "total_input_tokens": state.get("total_input_tokens", 0) + in_tok,
-                "total_output_tokens": state.get("total_output_tokens", 0) + out_tok}
-
-    def _parse_fixes(self, state: RCAState) -> RCAState:
-        if state.get("error"):
-            return state
+        network_section = extract_audit_groups(audit_output, [5])
         try:
-            sc = state.get("similar_cases", "") if self.config.memory_inject_into_fix_extraction else ""
-            fixes, in_tok, out_tok = self.parser.extract_fixes(state["rca_report"], sc)
-
-            # Step 1: scope filter FIRST — scope=none tools never get evaluated
-            scoped = []
-            for fix in fixes:
-                tool = fix.get("tool", "")
-                if tool in NETWORK_TOOL_NAMES:
-                    scope = self.config.remediation_network_tool_scope(tool)
-                    if scope == "none":
-                        logger.warning(
-                            "Network tool '%s' scope=none — excluded from plan", tool)
-                        continue
-                    fix["_net_scope"] = scope  # 'read' or 'write'
-                scoped.append(fix)
-            fixes = scoped
-
-            # Step 2: read current values + detect no-ops
-            with self._executor() as executor:
-                for fix in fixes:
-                    tool_cls = TOOL_REGISTRY.get(fix.get("tool", ""))
-                    if tool_cls:
-                        fix["current_value"] = tool_cls.read_current(
-                            executor, fix.get("params", {})
-                        )
-                        fix["_no_op"] = tool_cls.is_no_op(
-                            fix["current_value"], fix.get("params", {})
-                        )
-
-            skipped = [f for f in fixes if f.get("_no_op")]
-            fixes   = [f for f in fixes if not f.get("_no_op")]
-            if skipped:
-                logger.info("Skipping %d no-op fixes (already at target): %s",
-                            len(skipped), [f.get("description") for f in skipped])
-            Display.fix_plan(fixes)
-            return {**state, "fixes": fixes, "fix_index": 0,
+            fixes, summary, in_tok, out_tok = self.net_analyzer.analyze(
+                network_section, state.get("live_audit_output", ""), similar_cases
+            )
+            self._partial_state.update({
+                "session_id": state.get("session_id", ""),
+                "audit_output": audit_output,
+                "benchmark_results": benchmark_results,
+                "rca_report": summary, "applied_fixes": [], "rejected_fixes": [],
+            })
+            return {**state, "similar_cases": similar_cases,
+                    "network_fixes": fixes, "network_summary": summary,
                     "total_input_tokens": state.get("total_input_tokens", 0) + in_tok,
                     "total_output_tokens": state.get("total_output_tokens", 0) + out_tok}
         except Exception as e:
-            logger.error("parse_fixes failed: %s", e)
-            return {**state, "fixes": [], "fix_index": 0}
+            logger.error("analyze_network failed: %s", e)
+            return {**state, "similar_cases": similar_cases,
+                    "network_fixes": [], "network_summary": ""}
+
+    def _analyze_kernel(self, state: RCAState) -> RCAState:
+        if state.get("error"):
+            return state
+        kernel_section = extract_audit_groups(state["audit_output"], [1, 2, 3])
+        sc = state.get("similar_cases", "") if self.config.memory_inject_into_fix_extraction else ""
+        try:
+            fixes, summary, in_tok, out_tok = self.kernel_analyzer.analyze(
+                kernel_section, state.get("benchmark_results", ""),
+                state.get("network_summary", ""), sc
+            )
+            return {**state, "kernel_fixes": fixes, "kernel_summary": summary,
+                    "total_input_tokens": state.get("total_input_tokens", 0) + in_tok,
+                    "total_output_tokens": state.get("total_output_tokens", 0) + out_tok}
+        except Exception as e:
+            logger.error("analyze_kernel failed: %s", e)
+            return {**state, "kernel_fixes": [], "kernel_summary": ""}
+
+    def _analyze_nginx(self, state: RCAState) -> RCAState:
+        if state.get("error"):
+            return state
+        nginx_section = extract_audit_groups(state["audit_output"], [4])
+        sc = state.get("similar_cases", "") if self.config.memory_inject_into_fix_extraction else ""
+        try:
+            fixes, in_tok, out_tok = self.nginx_analyzer.analyze(
+                nginx_section, state.get("benchmark_results", ""),
+                state.get("network_summary", ""), state.get("kernel_summary", ""), sc
+            )
+            rca_report = "\n\n".join(filter(None, [
+                state.get("network_summary", ""),
+                state.get("kernel_summary", ""),
+                f"Nginx fixes: {len(fixes)} identified.",
+            ]))
+            return {**state, "nginx_fixes": fixes, "rca_report": rca_report,
+                    "total_input_tokens": state.get("total_input_tokens", 0) + in_tok,
+                    "total_output_tokens": state.get("total_output_tokens", 0) + out_tok}
+        except Exception as e:
+            logger.error("analyze_nginx failed: %s", e)
+            return {**state, "nginx_fixes": [], "rca_report": state.get("rca_report", "")}
+
+    def _merge_fixes(self, state: RCAState) -> RCAState:
+        """Combine all domain fixes, apply scope/no-op filters, build final plan."""
+        if state.get("error"):
+            return state
+        all_fixes = (
+            state.get("network_fixes", []) +
+            state.get("kernel_fixes", []) +
+            state.get("nginx_fixes", [])
+        )
+        # Scope filter
+        scoped = []
+        for fix in all_fixes:
+            tool = fix.get("tool", "")
+            if tool in NETWORK_TOOL_NAMES:
+                scope = self.config.remediation_network_tool_scope(tool)
+                if scope == "none":
+                    logger.warning("Network tool '%s' scope=none — excluded", tool)
+                    continue
+                fix["_net_scope"] = scope
+            if tool not in TOOL_REGISTRY:
+                logger.warning("Unknown tool '%s' — dropped", tool)
+                continue
+            scoped.append(fix)
+
+        # Sort: network first, then by tier
+        scoped.sort(key=lambda f: (
+            f.get("tier", 99),
+            0 if f.get("tool") in NETWORK_TOOL_NAMES else 1,
+        ))
+
+        # Read current values + no-op detection
+        with self._executor() as executor:
+            for fix in scoped:
+                tool_cls = TOOL_REGISTRY.get(fix.get("tool", ""))
+                if tool_cls:
+                    fix["current_value"] = tool_cls.read_current(
+                        executor, fix.get("params", {}))
+                    fix["_no_op"] = tool_cls.is_no_op(
+                        fix["current_value"], fix.get("params", {}))
+
+        skipped = [f for f in scoped if f.get("_no_op")]
+        fixes   = [f for f in scoped if not f.get("_no_op")]
+        if skipped:
+            logger.info("Skipping %d no-op fixes: %s",
+                        len(skipped), [f.get("description") for f in skipped])
+        Display.fix_plan(fixes)
+        return {**state, "fixes": fixes, "fix_index": 0}
 
     def _remediate_fix(self, state: RCAState) -> RCAState:
         fixes     = state["fixes"]
@@ -360,7 +413,7 @@ class RCAAgent:
 
     @staticmethod
     def _route_benchmark(state: RCAState) -> str:
-        return "error" if state.get("error") else "analyze"
+        return "error" if state.get("error") else "analyze_network"
 
     def _route_remediate(self, state: RCAState) -> str:
         if state.get("error"):
@@ -374,20 +427,24 @@ class RCAAgent:
 
     def _build_graph(self):
         g = StateGraph(RCAState)
-        g.add_node("deploy_and_run",  self._deploy_and_run)
-        g.add_node("run_benchmark",   self._run_benchmark)
-        g.add_node("analyze",         self._analyze)
-        g.add_node("parse_fixes",     self._parse_fixes)
-        g.add_node("remediate_fix",   self._remediate_fix)
-        g.set_entry_point("deploy_and_run")
-        g.add_conditional_edges("deploy_and_run", self._route_deploy,
+        g.add_node("run_audit",        self._run_audit)
+        g.add_node("run_benchmark",    self._run_benchmark)
+        g.add_node("analyze_network",  self._analyze_network)
+        g.add_node("analyze_kernel",   self._analyze_kernel)
+        g.add_node("analyze_nginx",    self._analyze_nginx)
+        g.add_node("merge_fixes",      self._merge_fixes)
+        g.add_node("remediate_fix",    self._remediate_fix)
+        g.set_entry_point("run_audit")
+        g.add_conditional_edges("run_audit",       self._route_deploy,
                                 {"run_benchmark": "run_benchmark", "error": END})
-        g.add_conditional_edges("run_benchmark",  self._route_benchmark,
-                                {"analyze": "analyze", "error": END})
-        g.add_edge("analyze", "parse_fixes")
-        g.add_conditional_edges("parse_fixes",    self._route_remediate,
+        g.add_conditional_edges("run_benchmark",   self._route_benchmark,
+                                {"analyze_network": "analyze_network", "error": END})
+        g.add_edge("analyze_network",  "analyze_kernel")
+        g.add_edge("analyze_kernel",   "analyze_nginx")
+        g.add_edge("analyze_nginx",    "merge_fixes")
+        g.add_conditional_edges("merge_fixes",     self._route_remediate,
                                 {"remediate_fix": "remediate_fix", "end": END})
-        g.add_conditional_edges("remediate_fix",  self._route_remediate,
+        g.add_conditional_edges("remediate_fix",   self._route_remediate,
                                 {"remediate_fix": "remediate_fix", "end": END})
         return g.compile()
 
@@ -397,6 +454,9 @@ class RCAAgent:
         initial: RCAState = {
             "session_id": session_id, "similar_cases": "", "live_audit_output": "",
             "audit_output": "", "benchmark_results": "", "baseline_rps": {},
+            "network_fixes": [], "network_summary": "",
+            "kernel_fixes":  [], "kernel_summary":  "",
+            "nginx_fixes":   [],
             "rca_report": "", "fixes": [], "fix_index": 0,
             "applied_fixes": [], "rejected_fixes": [],
             "total_input_tokens": 0, "total_output_tokens": 0, "error": "",

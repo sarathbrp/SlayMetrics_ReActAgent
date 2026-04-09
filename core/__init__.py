@@ -12,6 +12,7 @@ from .report import ReportWriter
 from .optimizer import FeedbackOptimizer
 from .memory import SemanticMemory
 from .live_sampler import LiveSampler
+from .domain_analyzers import NetworkAnalyzer, KernelAnalyzer, NginxAnalyzer, extract_audit_groups
 
 __all__ = [
     "Config",
@@ -30,4 +31,8 @@ __all__ = [
     "FeedbackOptimizer",
     "SemanticMemory",
     "LiveSampler",
+    "NetworkAnalyzer",
+    "KernelAnalyzer",
+    "NginxAnalyzer",
+    "extract_audit_groups",
 ]
