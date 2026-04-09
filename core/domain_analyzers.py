@@ -15,6 +15,30 @@ import dspy
 
 from .config import Config
 
+
+def _save_prompt(save_dir: Path, name: str, inputs: dict,
+                 fixes: list, summary: str, in_tok: int, out_tok: int) -> None:
+    """Save LLM prompt + response to session folder for debugging."""
+    try:
+        history = dspy.settings.lm.history
+        raw_messages = history[-1] if history else {}
+        save_dir.mkdir(parents=True, exist_ok=True)
+        path = save_dir / f"prompt_{name}.json"
+        payload = {
+            "timestamp":    datetime.now().isoformat(),
+            "domain":       name,
+            "inputs":       {k: v[:2000] + "…" if isinstance(v, str) and len(v) > 2000 else v
+                             for k, v in inputs.items()},
+            "fixes":        fixes,
+            "summary":      summary,
+            "tokens":       {"input": in_tok, "output": out_tok},
+            "raw_messages": raw_messages,
+        }
+        path.write_text(json.dumps(payload, indent=2, default=str))
+        logger.debug("Prompt saved to %s", path)
+    except Exception as e:
+        logger.warning("Failed to save prompt for %s: %s", name, e)
+
 logger = logging.getLogger("slayMetrics.analyzer")
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mABCDEFGHJKSTfhilmnprsu]")
@@ -100,7 +124,8 @@ class NetworkAnalyzer:
         return dspy.Predict(Sig)
 
     def analyze(self, network_section: str, live_audit: str,
-                similar_cases: str) -> tuple[list[dict], str, int, int]:
+                similar_cases: str,
+                save_dir: Path | None = None) -> tuple[list[dict], str, int, int]:
         """Returns (fixes, summary, input_tokens, output_tokens)."""
         if self._module is None:
             self._module = self._build()
@@ -119,6 +144,11 @@ class NetworkAnalyzer:
             logger.info("Network summary: %s", summary)
         for f in fixes:
             logger.info("  [Net fix] %s → tool=%s params=%s", f.get("description", ""), f.get("tool", ""), f.get("params", {}))
+        if save_dir:
+            _save_prompt(save_dir, "network",
+                         {"network_audit_section": network_section,
+                          "live_audit_output": live_audit, "similar_cases": similar_cases},
+                         fixes, summary, in_tok, out_tok)
         return fixes, summary, in_tok, out_tok
 
 
@@ -168,7 +198,8 @@ class KernelAnalyzer:
         return dspy.Predict(Sig)
 
     def analyze(self, kernel_section: str, benchmark_results: str,
-                network_summary: str, similar_cases: str) -> tuple[list[dict], str, int, int]:
+                network_summary: str, similar_cases: str,
+                save_dir: Path | None = None) -> tuple[list[dict], str, int, int]:
         """Returns (fixes, summary, input_tokens, output_tokens)."""
         if self._module is None:
             self._module = self._build()
@@ -188,6 +219,12 @@ class KernelAnalyzer:
             logger.info("Kernel summary: %s", summary)
         for f in fixes:
             logger.info("  [Kernel fix] %s → tool=%s params=%s", f.get("description", ""), f.get("tool", ""), f.get("params", {}))
+        if save_dir:
+            _save_prompt(save_dir, "kernel",
+                         {"kernel_audit_section": kernel_section,
+                          "benchmark_results": benchmark_results,
+                          "network_summary": network_summary, "similar_cases": similar_cases},
+                         fixes, summary, in_tok, out_tok)
         return fixes, summary, in_tok, out_tok
 
 
@@ -239,7 +276,8 @@ class NginxAnalyzer:
         return dspy.Predict(Sig)
 
     def analyze(self, nginx_section: str, benchmark_results: str, network_summary: str,
-                kernel_summary: str, similar_cases: str) -> tuple[list[dict], int, int]:
+                kernel_summary: str, similar_cases: str,
+                save_dir: Path | None = None) -> tuple[list[dict], int, int]:
         """Returns (fixes, input_tokens, output_tokens)."""
         if self._module is None:
             self._module = self._build()
@@ -258,4 +296,11 @@ class NginxAnalyzer:
         logger.info("Nginx analysis done in %.1fs — %d fixes found", elapsed, len(fixes))
         for f in fixes:
             logger.info("  [Nginx fix] %s → tool=%s params=%s", f.get("description", ""), f.get("tool", ""), f.get("params", {}))
+        if save_dir:
+            _save_prompt(save_dir, "nginx",
+                         {"nginx_audit_section": nginx_section,
+                          "benchmark_results": benchmark_results,
+                          "network_summary": network_summary,
+                          "kernel_summary": kernel_summary, "similar_cases": similar_cases},
+                         fixes, "", in_tok, out_tok)
         return fixes, in_tok, out_tok
