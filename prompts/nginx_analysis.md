@@ -43,7 +43,8 @@ Do NOT repeat fixes already addressed in network_summary or kernel_summary.
 | `nginx_tcp_nopush` | off | on | Medium — requires sendfile on |
 | `nginx_tcp_nodelay` | off | on | Medium |
 | `nginx_worker_processes` | not auto and ≠ nproc | auto | Medium |
-| `nginx_limit_rate` | set (non-default) | unset | CRITICAL — throttles per-connection bandwidth |
+| `nginx_limit_rate` | set (non-default) | unset | CRITICAL — throttles per-connection bandwidth. **Always check nginx_limit_rate_after together.** |
+| `nginx_limit_rate_after` | set (non-default) | unset | CRITICAL trap — rate limit only kicks in after this many bytes transferred. e.g. limit_rate_after=1m + limit_rate=5m means small files (< 1MB) are UNAFFECTED but large files get throttled. Low RPS on large/mixed workloads with good small/homepage RPS is the signature — agent may miss this if only checking priority workloads. Always flag both fields together. |
 | `nginx_limit_req` | active | unset | CRITICAL — rate-limits requests |
 | `nginx_limit_conn` | active | unset | HIGH — caps concurrent connections per IP |
 | `nginx_error_log_level` | debug or info | warn | Medium — excessive log I/O |
@@ -52,6 +53,7 @@ Do NOT repeat fixes already addressed in network_summary or kernel_summary.
 
 ## Key Cross-Checks
 
+- `nginx_limit_rate` + `nginx_limit_rate_after` ALWAYS go together. If limit_rate_after is set, rate throttling is SELECTIVE — only affects files larger than the threshold. If benchmark shows large/mixed workloads with poor RPS but homepage/small are fine, suspect limit_rate_after. Flag both for removal even if limit_rate looks harmless for small files.
 - `accept_mutex on` + `multi_accept on` = double serialization → set accept_mutex off
 - `worker_rlimit_nofile` must not exceed systemd LimitNOFILE (check kernel_summary)
 - `open_file_cache` only helps if vm.vfs_cache_pressure ≤ 150 (check kernel_summary)
