@@ -31,7 +31,7 @@ Do NOT repeat fixes already addressed in network_summary or kernel_summary.
 
 | Setting | Flag if | Target | Impact |
 |---------|---------|--------|--------|
-| `nginx_access_log` | not "off" | `off` | HIGH — disk I/O on every request |
+| `nginx_access_log` | not "off" | `off` | **CRITICAL Tier 1** — disk I/O on every request; proven +200%+ RPS gain for static file serving; ALWAYS flag this first if not already off |
 | `nginx_worker_connections` | < 16384 | 65535 | HIGH — caps concurrent connections |
 | `nginx_worker_rlimit_nofile` | < 65536 | 524288 | HIGH — fd exhaustion; must not exceed LimitNOFILE |
 | `nginx_keepalive_requests` | < 1000 | 10000 | Medium — frequent connection recycling |

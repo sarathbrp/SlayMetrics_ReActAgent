@@ -320,11 +320,13 @@ class RCAAgent:
                 continue
             scoped.append(fix)
 
-        # Sort: network first, then by tier
-        scoped.sort(key=lambda f: (
-            f.get("tier", 99),
-            0 if f.get("tool") in NETWORK_TOOL_NAMES else 1,
-        ))
+        # Sort: network tools first → access_log off second → then by tier
+        def _sort_key(f: dict) -> tuple:
+            is_net     = 0 if f.get("tool") in NETWORK_TOOL_NAMES else 1
+            is_access  = 0 if f.get("params", {}).get("directive") == "access_log" else 1
+            return (f.get("tier", 99), is_net, is_access)
+
+        scoped.sort(key=_sort_key)
 
         # Read current values + no-op detection
         with self._executor() as executor:
