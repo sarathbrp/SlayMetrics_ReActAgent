@@ -12,12 +12,14 @@ Your job: identify network-level bottlenecks and output structured fixes + a 2-s
 
 | Audit Field | Flag if | Tool | Impact |
 |-------------|---------|------|--------|
-| `TC_Active_Shaping` | not "none" | `tc_shaping` | CRITICAL — any non-none value means NIC is throttled (e.g. "htb rate=1Gbit ceil=1Gbit" on 25Gbit NIC = 25× throttle) |
-| `TC_Netem_Delay` | present | `tc_shaping` | CRITICAL — artificial latency injected into all traffic |
-| `IPTables_Port80_Actions` | not "none" | `iptables_connlimit` | CRITICAL — DROP/REJECT action on port 80 caps RPS before nginx (e.g. "DROP(connlimit>200)" = hard connection cap) |
-| `NFTables_Port80_Actions` | contains "drop", "reject", or "limit rate" | `nftables_ratelimit` | CRITICAL — nftables rate-limit or drop kills RPS at firewall level |
-| `net.netfilter.nf_conntrack_max` | < 65536 | `sysctl` (conntrack only) | CRITICAL — exhaustion silently drops established connections |
+| `TC_Active_Shaping` | not "none" | `tc_shaping` | CRITICAL — any non-none value means NIC is throttled. Compare rate against NIC_Speed (e.g. "htb rate=1Gbit" on NIC_Speed=25000Mb/s = 25× throttle). "netem delay=Xms" = artificial latency. |
+| `IPTables_Port80_Actions` | not "none" | `iptables_connlimit` | CRITICAL — DROP/REJECT on port 80 caps RPS before nginx (e.g. "DROP(connlimit>200)" = hard connection cap per source IP) |
+| `NFTables_Port80_Actions` | contains "drop", "reject", or "limit rate" | `nftables_ratelimit` | CRITICAL — nftables blocking or rate-limiting port 80 traffic |
+| `Conntrack_Max` | < 65536 | `sysctl` (param=net.netfilter.nf_conntrack_max, value=262144) | CRITICAL — conntrack table too small; exhaustion silently drops connections |
 | `Conntrack_Utilization` | > 70% | `sysctl` | HIGH — approaching conntrack table exhaustion |
+| `TCP_Listen_Drops` | > 0 | note only | CRITICAL — kernel is actively dropping connections at the listen queue; confirms somaxconn/backlog mismatch |
+| `TCP_Backlog_Drops` | > 0 | note only | HIGH — socket backlog overflowing; mention in summary for kernel node |
+| `Stress_Procs` | > 0 | note only | CRITICAL — background stress/dd processes stealing CPU cycles from nginx; mention in summary |
 
 ## Live Metrics to Cross-Reference
 
@@ -48,10 +50,12 @@ Output ONLY valid JSON — no markdown, no explanation.
 
 ## Rules
 
-1. Never flag TC unless TC_Active_Shaping is not "none" or TC_Netem_Delay is present
-2. Never flag iptables unless IPTables_Port80_Actions is not "none"
-3. Never flag nftables unless NFTables_Port80_Actions contains "drop", "reject", or "limit rate"
-4. Never recommend conntrack sysctl if nf_conntrack_max >= 65536
-5. TC_Active_Shaping value encodes both presence and rate (e.g. "htb rate=1Gbit ceil=1Gbit") — always include the rate in your summary
-6. IPTables_Port80_Actions value encodes the mechanism (e.g. "DROP(connlimit>200)") — always include it in your summary
-7. If no network issues found, output fixes=[] and summary stating "No network-level bottlenecks detected."
+1. Never flag TC unless TC_Active_Shaping is not "none"
+2. Always compare TC rate against NIC_Speed in your summary (e.g. "1Gbit cap on 25000Mb/s NIC = 25× throttle")
+3. Never flag iptables unless IPTables_Port80_Actions is not "none"
+4. Never flag nftables unless NFTables_Port80_Actions is not "none" and contains drop/reject/limit
+5. Never recommend conntrack sysctl if Conntrack_Max >= 65536
+6. TCP_Listen_Drops and TCP_Backlog_Drops are note-only — always mention in summary if > 0 (helps kernel node prioritize somaxconn)
+7. Stress_Procs > 0 is note-only — always mention in summary (kernel node needs to know)
+8. Use exact sysctl param name: `net.netfilter.nf_conntrack_max` in the fix params (even though the audit field is `Conntrack_Max`)
+9. If no network issues found, output fixes=[] and summary stating "No network-level bottlenecks detected."
