@@ -60,7 +60,7 @@ Output ONLY valid JSON — no markdown, no explanation.
   "fixes": [
     {"tier": 1, "description": "short label", "tool": "<tool>", "params": {<params>}}
   ],
-  "summary": "2-sentence paragraph describing what kernel/cgroup issues were found and fixed. Example: 'somaxconn raised to 65535 and tcp_max_syn_backlog aligned. LimitNOFILE raised to 524288 — worker_rlimit_nofile can now safely match.'"
+  "summary": "2-sentence paragraph describing what was DETECTED and what fixes WILL BE applied. Use future tense for actions. Example: 'somaxconn (4096) and tcp_max_syn_backlog (2048) are too low — both will be raised to 65535. LimitNOFILE will be raised to 524288 so worker_rlimit_nofile can safely match.'"
 }
 ```
 

@@ -37,7 +37,7 @@ Output ONLY valid JSON — no markdown, no explanation.
   "fixes": [
     {"tier": 1, "description": "short label", "tool": "<tool>", "params": {<params>}}
   ],
-  "summary": "2-sentence paragraph describing what was found and what fixes were generated. Start with the most critical finding. Example: 'TC HTB throttle detected (1Gbit cap on 25Gbit NIC). Iptables connlimit=200 also blocks concurrent connections — both removed.'"
+  "summary": "2-sentence paragraph describing what was DETECTED and what fixes WILL BE applied. Use future tense for actions. Start with the most critical finding. Example: 'TC HTB throttle detected (1Gbit cap on 25Gbit NIC) — tc_shaping fix will remove it. Iptables connlimit=200 also detected — iptables_connlimit fix will clear the DROP rule.'"
 }
 ```
 
