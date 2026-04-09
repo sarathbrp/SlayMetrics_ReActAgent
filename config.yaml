@@ -16,6 +16,7 @@ optimization:
 remediation:
   improvement_threshold_pct: -0.2  # reject only if priority workloads degrade by more than 0.2%
   degradation_tolerance_pct: -5.0  # max allowed degradation in non-priority workloads
+  llm_review_rejected: true        # when a rejected fix has positive overall improvement, ask LLM to review
   network_tools:
     # Per-tool scope: none | read | write
     #   none  — tool hidden from LLM, never applied

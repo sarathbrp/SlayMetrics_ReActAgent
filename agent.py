@@ -25,7 +25,7 @@ from langgraph.graph import StateGraph, END
 
 from core import (Config, RemoteExecutor, AuditRunner, RCAAnalyzer,
                   BenchmarkRunner, TOOL_REGISTRY, NETWORK_TOOL_NAMES,
-                  FixApplier, Evaluator, Display, ReportWriter,
+                  FixApplier, Evaluator, FixEvaluatorLLM, Display, ReportWriter,
                   FeedbackOptimizer, SemanticMemory, LiveSampler,
                   NetworkAnalyzer, KernelAnalyzer, NginxAnalyzer,
                   extract_audit_groups, RunTracker)
@@ -99,6 +99,7 @@ class RCAAgent:
         self.nginx_analyzer     = NginxAnalyzer(config, PROMPTS_DIR)
         self.benchmark          = BenchmarkRunner(config)
         self.evaluator          = Evaluator()
+        self.fix_reviewer       = FixEvaluatorLLM(config, PROMPTS_DIR)
         self.reporter         = ReportWriter(REPORTS_DIR)
         self.optimizer        = FeedbackOptimizer(
             min_new_examples=config.optimization_min_new_examples,
@@ -397,15 +398,35 @@ class RCAAgent:
                 # benchmark runs while SSH connection stays open (reused for rollback)
                 raw = self.benchmark.run()
                 current_rps = self.evaluator.parse_rps(raw)
-                keep, pct = self.evaluator.should_keep(
+                keep, pct, degraded = self.evaluator.should_keep(
                     baseline, current_rps, threshold,
                     self.config.remediation_degradation_tolerance,
                 )
+
+                # LLM review: when gate rejects but overall improvement is positive
+                llm_overridden = False
+                overall_pct = self.evaluator.improvement_pct(baseline, current_rps)
+                if (not keep and overall_pct > 0
+                        and self.config.remediation_llm_review_rejected):
+                    rca_context = state.get("rca_report", "")
+                    save_dir = REPORTS_DIR / state.get("session_id", "unknown")
+                    accept, reasoning, r_in, r_out = self.fix_reviewer.review(
+                        fix, baseline, current_rps, rca_context, degraded,
+                        save_dir=save_dir,
+                    )
+                    if accept:
+                        keep = True
+                        llm_overridden = True
+                        logger.info(
+                            "LLM OVERRIDE: fix accepted despite gate rejection — %s",
+                            reasoning,
+                        )
 
                 Display.fix_comparison(
                     idx + 1, len(fixes), fix.get("description", ""),
                     fix.get("tool", ""), fix.get("params", {}),
                     baseline, current_rps, keep, pct,
+                    llm_override=llm_overridden,
                 )
                 if keep:
                     applied.append((fix.get("description", ""), round(pct, 2)))

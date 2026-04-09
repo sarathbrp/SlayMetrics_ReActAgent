@@ -108,6 +108,10 @@ class Config:
     def remediation_degradation_tolerance(self) -> float:
         return self._cfg.get("remediation", {}).get("degradation_tolerance_pct", -3.0)
 
+    @property
+    def remediation_llm_review_rejected(self) -> bool:
+        return self._cfg.get("remediation", {}).get("llm_review_rejected", False)
+
     # --- MLflow ---
     @property
     def mlflow_enabled(self) -> bool:

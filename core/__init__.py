@@ -7,6 +7,7 @@ from .remediation_tools import TOOL_REGISTRY, NETWORK_TOOL_NAMES, dispatch
 from .rca_parser import RCAParser
 from .fix_applier import FixApplier
 from .evaluator import Evaluator
+from .fix_evaluator import FixEvaluatorLLM
 from .display import Display
 from .report import ReportWriter
 from .optimizer import FeedbackOptimizer
@@ -27,6 +28,7 @@ __all__ = [
     "RCAParser",
     "FixApplier",
     "Evaluator",
+    "FixEvaluatorLLM",
     "Display",
     "ReportWriter",
     "FeedbackOptimizer",

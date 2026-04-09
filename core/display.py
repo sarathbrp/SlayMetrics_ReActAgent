@@ -68,8 +68,12 @@ class Display:
     def fix_comparison(fix_num: int, total: int, description: str,
                        tool: str, params: dict,
                        baseline: dict[str, float], current: dict[str, float],
-                       keep: bool, pct: float) -> None:
-        verdict = "ACCEPTED" if keep else "REJECTED"
+                       keep: bool, pct: float,
+                       llm_override: bool = False) -> None:
+        if llm_override:
+            verdict = "ACCEPTED (LLM override)"
+        else:
+            verdict = "ACCEPTED" if keep else "REJECTED"
         params_str = ", ".join(f"{k}={v}" for k, v in params.items())
         t = PrettyTable()
         t.field_names = ["Workload", "Baseline RPS", "Current RPS", "Delta %"]

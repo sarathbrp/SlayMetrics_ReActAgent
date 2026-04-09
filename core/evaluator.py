@@ -48,11 +48,11 @@ class Evaluator:
     @staticmethod
     def should_keep(baseline: dict[str, float], current: dict[str, float],
                     threshold: float,
-                    degradation_tolerance: float = -3.0) -> tuple[bool, float]:
+                    degradation_tolerance: float = -3.0) -> tuple[bool, float, dict[str, float]]:
         """Keep a fix only if priority workloads improve >= threshold
         AND no other workload degrades.
 
-        Returns (keep, priority_improvement_pct).
+        Returns (keep, priority_improvement_pct, degraded_workloads).
         """
         common = set(baseline) & set(current)
         deltas = {
@@ -91,4 +91,4 @@ class Evaluator:
                 "Priority improvement: %.2f%% (threshold: %.1f%%) — %s",
                 priority_avg, threshold, "KEEP" if keep else "ROLLBACK",
             )
-        return keep, priority_avg
+        return keep, priority_avg, degraded
