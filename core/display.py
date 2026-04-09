@@ -126,6 +126,11 @@ class Display:
                     t.get_string(title="LLM RCA Request Summary"))
 
     @staticmethod
+    def live_analysis(analysis: str) -> None:
+        if analysis:
+            logger.info("Live Benchmark Analysis\n%s", analysis)
+
+    @staticmethod
     def run_summary(rca_report: str, applied: list, rejected: list,
                     in_tok: int, out_tok: int) -> None:
         # Extract up to 200 words from the RCA report for the console summary

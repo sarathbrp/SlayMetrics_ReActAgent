@@ -192,8 +192,9 @@ class RCAAgent:
                         len(formatted), len(baseline_rps))
             Display.benchmark_results(formatted)
 
-            # Analyze collected CSV → compact hypothesis for LLM
+            # Analyze collected CSV → compact hypothesis for LLM + console
             live_audit = self.sampler.analyze(csv_path) if csv_path.exists() else ""
+            Display.live_analysis(live_audit)
 
             return {**state, "benchmark_results": formatted,
                     "baseline_rps": baseline_rps, "live_audit_output": live_audit}
