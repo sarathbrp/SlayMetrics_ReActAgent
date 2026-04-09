@@ -1,0 +1,37 @@
+# Secrets
+.env
+
+# DSPy training data and compiled programs
+dspy_data/
+
+# RCA reports (per-run output)
+rca_reports/
+
+# Log files
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ChromaDB (persisted in dspy_data/)
+chroma/
