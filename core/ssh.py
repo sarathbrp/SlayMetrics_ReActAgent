@@ -1,11 +1,15 @@
 import hashlib
 import logging
 import stat
+import time
 from pathlib import Path
 
 import paramiko
 
 logger = logging.getLogger("slayMetrics.ssh")
+
+_CONNECT_RETRIES = 3
+_CONNECT_RETRY_WAIT = 5  # seconds between retries
 
 
 class RemoteExecutor:
@@ -21,16 +25,26 @@ class RemoteExecutor:
         self._client: paramiko.SSHClient | None = None
 
     def connect(self) -> None:
-
-        self._client = paramiko.SSHClient()
-        self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self._client.connect(
-            hostname=self.host,
-            username=self.user,
-            key_filename=self.key_path,
-            port=self.port,
-            timeout=self.timeout,
-        )
+        last_err: Exception | None = None
+        for attempt in range(1, _CONNECT_RETRIES + 1):
+            try:
+                self._client = paramiko.SSHClient()
+                self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                self._client.connect(
+                    hostname=self.host,
+                    username=self.user,
+                    key_filename=self.key_path,
+                    port=self.port,
+                    timeout=self.timeout,
+                )
+                return
+            except Exception as e:
+                last_err = e
+                if attempt < _CONNECT_RETRIES:
+                    logger.warning("SSH connect attempt %d/%d failed (%s) — retrying in %ds",
+                                   attempt, _CONNECT_RETRIES, e, _CONNECT_RETRY_WAIT)
+                    time.sleep(_CONNECT_RETRY_WAIT)
+        raise last_err
 
     def disconnect(self) -> None:
         if self._client:
