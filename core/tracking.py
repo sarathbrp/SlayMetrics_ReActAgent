@@ -101,7 +101,13 @@ class RunTracker:
         if not self._active:
             return
         try:
-            safe_name = description[:50].replace(" ", "_").replace("/", "-")
+            import re
+            import unicodedata
+            # Normalize unicode (e.g. non-breaking hyphen → ASCII hyphen), strip non-ASCII
+            normalized = unicodedata.normalize("NFKC", description)
+            # Replace any char not in MLflow's allowed set with underscore
+            safe_name = re.sub(r"[^a-zA-Z0-9_\-. :/]", "_", normalized)
+            safe_name = safe_name[:50].strip("_")
             self._mlflow.log_metrics({
                 f"fix.{safe_name}.improvement_pct": pct,
                 f"fix.{safe_name}.accepted":        int(keep),
