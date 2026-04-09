@@ -13,7 +13,13 @@ echo -e "${CYAN}================================================================
 
 # 1. System Context
 NGINX_PID=$(pgrep -n nginx)
+# Management NIC (default route) — used for general context
 NIC_DEV=$(ip -o -4 route show to default | awk '{print $5}')
+# Benchmark NIC — the interface carrying actual test traffic (172.21.x.x subnet)
+# This is what tc/iptables rules must target to affect benchmark results
+BENCH_NIC=$(ip route get 172.21.89.124 2>/dev/null | grep -oP 'dev \K\S+' || \
+            ip -o -4 addr show | grep '172\.21\.' | awk '{print $2}' | head -1 || \
+            echo "$NIC_DEV")
 CONF_DUMP=$(nginx -T 2>/dev/null)
 
 # Auto-detect primary block device (prefer NVMe over SATA)
@@ -96,15 +102,15 @@ fi
 # --- [GROUP 5: NETWORK CHAOS DETECTION] ---
 echo -e "\n${YELLOW}[5/5] Traffic Control & Error Telemetry${NC}"
 
-# TC traffic shaping — generic: show any active shaping with parameters
-fmt_line "TC_Qdisc_State" "$(tc qdisc show dev $NIC_DEV | head -n1)"
+# TC traffic shaping — check BENCHMARK NIC (not management NIC)
+fmt_line "TC_Qdisc_State" "$(tc qdisc show dev $BENCH_NIC | head -n1)"
+fmt_line "Benchmark_NIC" "$BENCH_NIC"
 # Summarise ALL active shaping types and their key params in one field
-TC_SUMMARY=""
-tc qdisc show dev $NIC_DEV | while read -r line; do
+tc qdisc show dev $BENCH_NIC | while read -r line; do
     case "$line" in
         *htb*)
-            RATE=$(tc class show dev $NIC_DEV 2>/dev/null | grep -oP 'rate \K\S+' | head -1)
-            CEIL=$(tc class show dev $NIC_DEV 2>/dev/null | grep -oP 'ceil \K\S+' | head -1)
+            RATE=$(tc class show dev $BENCH_NIC 2>/dev/null | grep -oP 'rate \K\S+' | head -1)
+            CEIL=$(tc class show dev $BENCH_NIC 2>/dev/null | grep -oP 'ceil \K\S+' | head -1)
             echo "htb rate=${RATE:-?} ceil=${CEIL:-?}" ;;
         *netem*)
             DELAY=$(echo "$line" | grep -oP 'delay \K\S+(\s+\S+)?')
@@ -115,8 +121,8 @@ tc qdisc show dev $NIC_DEV | while read -r line; do
             echo "tbf rate=${RATE:-?}" ;;
     esac
 done | paste -sd ',' | { read v; fmt_line "TC_Active_Shaping" "${v:-none}"; }
-# NIC speed — always show so agent can compare against any TC cap
-fmt_line "NIC_Speed" "$(ethtool $NIC_DEV 2>/dev/null | grep -i 'Speed:' | awk '{print $2}' || echo 'N/A')"
+# NIC speed — show benchmark NIC speed for TC comparison
+fmt_line "NIC_Speed" "$(ethtool $BENCH_NIC 2>/dev/null | grep -i 'Speed:' | awk '{print $2}' || echo 'N/A')"
 
 # Softnet — use printf to avoid awk integer overflow on large hex values
 fmt_line "Softnet_Time_Squeeze" "$(awk '{sum+=strtonum("0x"$3)} END {printf "%d\n", sum}' /proc/net/softnet_stat)"

@@ -12,7 +12,13 @@ from .ssh import RemoteExecutor
 
 logger = logging.getLogger("slayMetrics.tools")
 
-_NIC_CMD = "ip -o -4 route show to default | awk '{print $5}'"
+# Benchmark NIC — same detection as omega_master_audit.sh BENCH_NIC
+# TC/iptables rules target the 172.21.x.x interface, not the management NIC
+_NIC_CMD = (
+    "ip route get 172.21.89.124 2>/dev/null | grep -oP 'dev \\K\\S+' || "
+    "ip -o -4 addr show | grep '172\\.21\\.' | awk '{print $2}' | head -1 || "
+    "ip -o -4 route show to default | awk '{print $5}'"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +34,7 @@ class TcShapingTool(RemediationTool):
     @classmethod
     def read_current(cls, executor: RemoteExecutor, params: dict) -> str:
         out, _ = executor.run(
-            f"NIC=$({_NIC_CMD}); tc qdisc show dev $NIC | grep htb || echo 'no htb'"
+            f"NIC=$({_NIC_CMD}); tc qdisc show dev $NIC | grep -E 'htb|netem|tbf' || echo 'no htb'"
         )
         return out.strip()
 
