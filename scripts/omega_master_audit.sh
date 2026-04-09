@@ -15,11 +15,12 @@ echo -e "${CYAN}================================================================
 NGINX_PID=$(pgrep -n nginx)
 # Management NIC (default route) — used for general context
 NIC_DEV=$(ip -o -4 route show to default | awk '{print $5}')
-# Benchmark NIC — the interface carrying actual test traffic (172.21.x.x subnet)
-# This is what tc/iptables rules must target to affect benchmark results
-BENCH_NIC=$(ip route get 172.21.89.124 2>/dev/null | grep -oP 'dev \K\S+' || \
-            ip -o -4 addr show | grep '172\.21\.' | awk '{print $2}' | head -1 || \
-            echo "$NIC_DEV")
+# Benchmark NIC — VLAN interface carrying test traffic (172.21.x.x subnet)
+BENCH_VLAN=$(ip route get 172.21.89.124 2>/dev/null | grep -oP 'dev \K\S+' || \
+             ip -o -4 addr show | grep '172\.21\.' | awk '{print $2}' | head -1 || \
+             echo "$NIC_DEV")
+# TC shaping must be on the parent physical NIC (VLAN interfaces don't support tc)
+BENCH_NIC=$(echo "$BENCH_VLAN" | cut -d'.' -f1)
 CONF_DUMP=$(nginx -T 2>/dev/null)
 
 # Auto-detect primary block device (prefer NVMe over SATA)

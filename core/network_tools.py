@@ -12,12 +12,14 @@ from .ssh import RemoteExecutor
 
 logger = logging.getLogger("slayMetrics.tools")
 
-# Benchmark NIC — same detection as omega_master_audit.sh BENCH_NIC
-# TC/iptables rules target the 172.21.x.x interface, not the management NIC
+# Benchmark NIC — matches omega_master_audit.sh BENCH_NIC logic:
+# 1. Find VLAN interface carrying 172.21.x.x traffic
+# 2. Strip VLAN suffix to get parent physical NIC (TC shaping targets physical NIC)
 _NIC_CMD = (
-    "ip route get 172.21.89.124 2>/dev/null | grep -oP 'dev \\K\\S+' || "
+    "VLAN=$(ip route get 172.21.89.124 2>/dev/null | grep -oP 'dev \\K\\S+' || "
     "ip -o -4 addr show | grep '172\\.21\\.' | awk '{print $2}' | head -1 || "
-    "ip -o -4 route show to default | awk '{print $5}'"
+    "ip -o -4 route show to default | awk '{print $5}') && "
+    "echo \"${VLAN%%.*}\""
 )
 
 
