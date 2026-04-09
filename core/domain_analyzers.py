@@ -125,7 +125,7 @@ class NetworkAnalyzer:
 
     def analyze(self, network_section: str, live_audit: str,
                 similar_cases: str,
-                save_dir: Path | None = None) -> tuple[list[dict], str, int, int]:
+                save_dir: Path | None = None) -> tuple[list[dict], str, int, int, float]:
         """Returns (fixes, summary, input_tokens, output_tokens)."""
         if self._module is None:
             self._module = self._build()
@@ -149,7 +149,7 @@ class NetworkAnalyzer:
                          {"network_audit_section": network_section,
                           "live_audit_output": live_audit, "similar_cases": similar_cases},
                          fixes, summary, in_tok, out_tok)
-        return fixes, summary, in_tok, out_tok
+        return fixes, summary, in_tok, out_tok, elapsed
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ class KernelAnalyzer:
 
     def analyze(self, kernel_section: str, benchmark_results: str,
                 network_summary: str, similar_cases: str,
-                save_dir: Path | None = None) -> tuple[list[dict], str, int, int]:
+                save_dir: Path | None = None) -> tuple[list[dict], str, int, int, float]:
         """Returns (fixes, summary, input_tokens, output_tokens)."""
         if self._module is None:
             self._module = self._build()
@@ -225,7 +225,7 @@ class KernelAnalyzer:
                           "benchmark_results": benchmark_results,
                           "network_summary": network_summary, "similar_cases": similar_cases},
                          fixes, summary, in_tok, out_tok)
-        return fixes, summary, in_tok, out_tok
+        return fixes, summary, in_tok, out_tok, elapsed
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +277,7 @@ class NginxAnalyzer:
 
     def analyze(self, nginx_section: str, benchmark_results: str, network_summary: str,
                 kernel_summary: str, similar_cases: str,
-                save_dir: Path | None = None) -> tuple[list[dict], int, int]:
+                save_dir: Path | None = None) -> tuple[list[dict], int, int, float]:
         """Returns (fixes, input_tokens, output_tokens)."""
         if self._module is None:
             self._module = self._build()
@@ -303,4 +303,4 @@ class NginxAnalyzer:
                           "network_summary": network_summary,
                           "kernel_summary": kernel_summary, "similar_cases": similar_cases},
                          fixes, "", in_tok, out_tok)
-        return fixes, in_tok, out_tok
+        return fixes, in_tok, out_tok, elapsed

@@ -126,6 +126,31 @@ class Display:
                     t.get_string(title="LLM RCA Request Summary"))
 
     @staticmethod
+    def llm_calls_summary(calls: list) -> None:
+        """Print per-domain LLM call stats + totals."""
+        if not calls:
+            return
+        t = PrettyTable()
+        t.field_names = ["Domain", "Time (s)", "Input tok", "Output tok", "Total tok", "Fixes"]
+        t.align["Domain"] = "l"
+        t.align["Time (s)"] = "r"
+        t.align["Input tok"] = "r"
+        t.align["Output tok"] = "r"
+        t.align["Total tok"] = "r"
+        t.align["Fixes"] = "r"
+        total_in = total_out = total_elapsed = 0
+        for domain, elapsed, in_tok, out_tok, num_fixes in calls:
+            t.add_row([domain, f"{elapsed:.1f}", f"{in_tok:,}", f"{out_tok:,}",
+                       f"{in_tok + out_tok:,}", num_fixes])
+            total_in += in_tok
+            total_out += out_tok
+            total_elapsed += elapsed
+        t.add_row(["─" * 7, "─" * 8, "─" * 9, "─" * 10, "─" * 9, "─" * 5])
+        t.add_row(["TOTAL", f"{total_elapsed:.1f}", f"{total_in:,}", f"{total_out:,}",
+                   f"{total_in + total_out:,}", sum(c[4] for c in calls)])
+        logger.info("LLM Calls Summary\n%s", t.get_string(title="LLM Analysis Summary"))
+
+    @staticmethod
     def live_analysis(analysis: str) -> None:
         if analysis:
             logger.info("Live Benchmark Analysis\n%s", analysis)

@@ -80,6 +80,7 @@ class RCAState(TypedDict):
     rejected_fixes: list          # [(description, improvement_pct)]
     total_input_tokens: int
     total_output_tokens: int
+    llm_calls: list              # [(domain, elapsed_s, in_tok, out_tok, num_fixes)]
     error: str
 
 
@@ -224,10 +225,12 @@ class RCAAgent:
         network_section = extract_audit_groups(audit_output, [5])
         save_dir = REPORTS_DIR / state.get("session_id", "unknown")
         try:
-            fixes, summary, in_tok, out_tok = self.net_analyzer.analyze(
+            fixes, summary, in_tok, out_tok, elapsed = self.net_analyzer.analyze(
                 network_section, state.get("live_audit_output", ""), similar_cases,
                 save_dir=save_dir,
             )
+            calls = list(state.get("llm_calls", []))
+            calls.append(("network", round(elapsed, 1), in_tok, out_tok, len(fixes)))
             self._partial_state.update({
                 "session_id": state.get("session_id", ""),
                 "audit_output": audit_output,
@@ -236,6 +239,7 @@ class RCAAgent:
             })
             return {**state, "similar_cases": similar_cases,
                     "network_fixes": fixes, "network_summary": summary,
+                    "llm_calls": calls,
                     "total_input_tokens": state.get("total_input_tokens", 0) + in_tok,
                     "total_output_tokens": state.get("total_output_tokens", 0) + out_tok}
         except Exception as e:
@@ -250,12 +254,15 @@ class RCAAgent:
         sc = state.get("similar_cases", "") if self.config.memory_inject_into_fix_extraction else ""
         save_dir = REPORTS_DIR / state.get("session_id", "unknown")
         try:
-            fixes, summary, in_tok, out_tok = self.kernel_analyzer.analyze(
+            fixes, summary, in_tok, out_tok, elapsed = self.kernel_analyzer.analyze(
                 kernel_section, state.get("benchmark_results", ""),
                 state.get("network_summary", ""), sc,
                 save_dir=save_dir,
             )
+            calls = list(state.get("llm_calls", []))
+            calls.append(("kernel", round(elapsed, 1), in_tok, out_tok, len(fixes)))
             return {**state, "kernel_fixes": fixes, "kernel_summary": summary,
+                    "llm_calls": calls,
                     "total_input_tokens": state.get("total_input_tokens", 0) + in_tok,
                     "total_output_tokens": state.get("total_output_tokens", 0) + out_tok}
         except Exception as e:
@@ -269,17 +276,20 @@ class RCAAgent:
         sc = state.get("similar_cases", "") if self.config.memory_inject_into_fix_extraction else ""
         save_dir = REPORTS_DIR / state.get("session_id", "unknown")
         try:
-            fixes, in_tok, out_tok = self.nginx_analyzer.analyze(
+            fixes, in_tok, out_tok, elapsed = self.nginx_analyzer.analyze(
                 nginx_section, state.get("benchmark_results", ""),
                 state.get("network_summary", ""), state.get("kernel_summary", ""), sc,
                 save_dir=save_dir,
             )
+            calls = list(state.get("llm_calls", []))
+            calls.append(("nginx", round(elapsed, 1), in_tok, out_tok, len(fixes)))
             rca_report = "\n\n".join(filter(None, [
                 state.get("network_summary", ""),
                 state.get("kernel_summary", ""),
                 f"Nginx fixes: {len(fixes)} identified.",
             ]))
             return {**state, "nginx_fixes": fixes, "rca_report": rca_report,
+                    "llm_calls": calls,
                     "total_input_tokens": state.get("total_input_tokens", 0) + in_tok,
                     "total_output_tokens": state.get("total_output_tokens", 0) + out_tok}
         except Exception as e:
@@ -465,7 +475,8 @@ class RCAAgent:
             "nginx_fixes":   [],
             "rca_report": "", "fixes": [], "fix_index": 0,
             "applied_fixes": [], "rejected_fixes": [],
-            "total_input_tokens": 0, "total_output_tokens": 0, "error": "",
+            "total_input_tokens": 0, "total_output_tokens": 0,
+            "llm_calls": [], "error": "",
         }
         result = self.graph.invoke(initial)
 
@@ -506,6 +517,7 @@ class RCAAgent:
 
         in_tok  = result.get("total_input_tokens", 0)
         out_tok = result.get("total_output_tokens", 0)
+        Display.llm_calls_summary(result.get("llm_calls", []))
         Display.run_summary(
             result["rca_report"],
             result["applied_fixes"],
