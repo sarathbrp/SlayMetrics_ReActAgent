@@ -79,6 +79,19 @@ class Config:
         return self._cfg.get("benchmark", {}).get("collect_live_audit", True)
 
     @property
+    def live_sampling_enabled(self) -> bool:
+        return (self.benchmark_collect_live_audit and
+                self._cfg.get("benchmark", {}).get("live_sampling", {}).get("enabled", True))
+
+    @property
+    def live_sampling_interval(self) -> int:
+        return self._cfg.get("benchmark", {}).get("live_sampling", {}).get("interval_seconds", 2)
+
+    @property
+    def live_sampling_max_samples(self) -> int:
+        return self._cfg.get("benchmark", {}).get("live_sampling", {}).get("max_samples", 25)
+
+    @property
     def benchmark_workloads(self) -> list[str]:
         return self._cfg["benchmark"].get("workloads", [])
 

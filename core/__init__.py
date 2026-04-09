@@ -11,6 +11,7 @@ from .display import Display
 from .report import ReportWriter
 from .optimizer import FeedbackOptimizer
 from .memory import SemanticMemory
+from .live_sampler import LiveSampler
 
 __all__ = [
     "Config",
@@ -28,4 +29,5 @@ __all__ = [
     "ReportWriter",
     "FeedbackOptimizer",
     "SemanticMemory",
+    "LiveSampler",
 ]

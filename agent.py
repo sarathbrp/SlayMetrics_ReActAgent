@@ -26,7 +26,7 @@ from langgraph.graph import StateGraph, END
 from core import (Config, RemoteExecutor, AuditRunner, RCAAnalyzer,
                   BenchmarkRunner, TOOL_REGISTRY, NETWORK_TOOL_NAMES,
                   RCAParser, FixApplier, Evaluator, Display, ReportWriter,
-                  FeedbackOptimizer, SemanticMemory)
+                  FeedbackOptimizer, SemanticMemory, LiveSampler)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -93,6 +93,8 @@ class RCAAgent:
             min_new_examples=config.optimization_min_new_examples,
             max_bootstrap_demos=config.optimization_max_bootstrap_demos,
         )
+        self.sampler          = LiveSampler(config, SCRIPTS_DIR, REMOTE_TMP,
+                                             self._executor)
         self.memory           = SemanticMemory(
             persist_dir=DSPY_DIR / "chroma",
             base_url=config.llm_base_url,
@@ -174,23 +176,24 @@ class RCAAgent:
         if state.get("error"):
             return state
         try:
-            raw = self.benchmark.run()
-            formatted = self.benchmark.format_for_llm(raw)
+            session_id  = state.get("session_id", "unknown")
+            csv_path    = REPORTS_DIR / session_id / "live_samples.csv"
+
+            # Start background sampler before benchmark runs
+            self.sampler.start(csv_path)
+            try:
+                raw = self.benchmark.run()
+            finally:
+                self.sampler.stop()
+
+            formatted    = self.benchmark.format_for_llm(raw)
             baseline_rps = self.evaluator.parse_rps(raw)
             logger.info("Benchmark captured (%d bytes, %d workloads)",
                         len(formatted), len(baseline_rps))
             Display.benchmark_results(formatted)
 
-            # Collect dynamic runtime metrics immediately after benchmark
-            live_audit = ""
-            if self.config.benchmark_collect_live_audit:
-                try:
-                    with self._executor() as executor:
-                        live_audit = AuditRunner(
-                            executor, SCRIPTS_DIR, REMOTE_TMP
-                        ).run_live()
-                except Exception as e:
-                    logger.warning("Live audit failed (non-fatal): %s", e)
+            # Analyze collected CSV → compact hypothesis for LLM
+            live_audit = self.sampler.analyze(csv_path) if csv_path.exists() else ""
 
             return {**state, "benchmark_results": formatted,
                     "baseline_rps": baseline_rps, "live_audit_output": live_audit}

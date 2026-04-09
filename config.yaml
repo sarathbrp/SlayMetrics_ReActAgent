@@ -38,7 +38,11 @@ benchmark:
   results_directory: /root/hackathon-results
   cooling_period_seconds: 30
   final_benchmark_duration_minutes: 5
-  collect_live_audit: true     # collect dynamic runtime metrics after initial benchmark
+  collect_live_audit: true     # collect dynamic runtime metrics during benchmark
+  live_sampling:
+    enabled: true
+    interval_seconds: 2        # sample every N seconds
+    max_samples: 25            # downsample to this before analysis (handles long benchmarks)
   workloads:
     - homepage
     - small
