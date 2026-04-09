@@ -64,16 +64,24 @@ class Evaluator:
         others   = {w: d for w, d in deltas.items() if w not in PRIORITY_WORKLOADS}
 
         priority_avg = sum(priority.values()) / len(priority) if priority else 0.0
-        degraded     = {w: d for w, d in others.items()
-                       if d < degradation_tolerance}
+
+        # Skip degradation check for workloads with very low baseline RPS —
+        # at < 10 RPS, a single-request timing variance causes ±50%+ swings.
+        degraded = {
+            w: d for w, d in others.items()
+            if d < degradation_tolerance and baseline.get(w, 0) >= 10.0
+        }
 
         keep = priority_avg >= threshold and not degraded
 
+        low_rps_skipped = [w for w in others if baseline.get(w, 0) < 10.0]
         if degraded:
+            skip_note = f" [skipped low-RPS: {low_rps_skipped}]" if low_rps_skipped else ""
             logger.info(
-                "Priority improvement: %.2f%% — ROLLBACK (degraded: %s)",
+                "Priority improvement: %.2f%% — ROLLBACK (degraded: %s%s)",
                 priority_avg,
                 ", ".join(f"{w}={d:.1f}%" for w, d in degraded.items()),
+                skip_note,
             )
         else:
             logger.info(

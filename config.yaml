@@ -27,7 +27,7 @@ target:
   user: root
   private_key_path: /root/.ssh/id_ed25519
   port: 22
-  connect_timeout_seconds: 5
+  connect_timeout_seconds: 15
 
 benchmark:
   runner:
