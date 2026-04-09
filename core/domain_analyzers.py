@@ -15,6 +15,14 @@ import dspy
 
 from .config import Config
 
+# MLflow trace decorator — falls back to no-op if mlflow unavailable
+try:
+    import mlflow
+    _trace = mlflow.trace
+except (ImportError, AttributeError):
+    def _trace(fn=None, **kwargs):  # type: ignore
+        return fn if fn else (lambda f: f)
+
 
 def _save_prompt(save_dir: Path, name: str, inputs: dict,
                  fixes: list, summary: str, in_tok: int, out_tok: int) -> None:
@@ -123,6 +131,7 @@ class NetworkAnalyzer:
         Sig.__doc__ = instructions
         return dspy.Predict(Sig)
 
+    @_trace
     def analyze(self, network_section: str, live_audit: str,
                 similar_cases: str,
                 save_dir: Path | None = None) -> tuple[list[dict], str, int, int, float]:
@@ -197,6 +206,7 @@ class KernelAnalyzer:
         Sig.__doc__ = instructions
         return dspy.Predict(Sig)
 
+    @_trace
     def analyze(self, kernel_section: str, benchmark_results: str,
                 network_summary: str, similar_cases: str,
                 save_dir: Path | None = None) -> tuple[list[dict], str, int, int, float]:
@@ -275,6 +285,7 @@ class NginxAnalyzer:
         Sig.__doc__ = instructions
         return dspy.Predict(Sig)
 
+    @_trace
     def analyze(self, nginx_section: str, benchmark_results: str, network_summary: str,
                 kernel_summary: str, similar_cases: str,
                 save_dir: Path | None = None) -> tuple[list[dict], int, int, float]:
