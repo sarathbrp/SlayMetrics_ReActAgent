@@ -429,6 +429,16 @@ class RCAAgent:
                             fix, baseline, current_rps, rca_context, degraded,
                             save_dir=save_dir,
                         )
+                        # Track LLM review tokens + call in MLflow and state
+                        verdict_tag = "override_accept" if accept else "confirm_reject"
+                        calls = list(state.get("llm_calls", []))
+                        calls.append(("fix_review", 0, r_in, r_out, 0))
+                        state = {**state, "llm_calls": calls,
+                                 "total_input_tokens": state.get("total_input_tokens", 0) + r_in,
+                                 "total_output_tokens": state.get("total_output_tokens", 0) + r_out}
+                        self.tracker.log_llm_call(
+                            f"fix_review:{verdict_tag}", 0, r_in, r_out, 0,
+                        )
                         if accept:
                             keep = True
                             llm_overridden = True
